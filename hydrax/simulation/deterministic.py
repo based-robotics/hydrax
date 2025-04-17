@@ -7,6 +7,8 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 from mujoco import mjx
+import mediapy
+from datetime import datetime
 
 from hydrax.alg_base import SamplingBasedController
 
@@ -28,6 +30,7 @@ def run_interactive(  # noqa: PLR0912, PLR0915
     trace_color: Sequence = [1.0, 1.0, 1.0, 0.1],
     reference: np.ndarray = None,
     reference_fps: float = 30.0,
+    save: bool = False,
 ) -> None:
     """Run an interactive simulation with the MPC controller.
 
@@ -67,16 +70,11 @@ def run_interactive(  # noqa: PLR0912, PLR0915
     sim_steps_per_replan = max(sim_steps_per_replan, 1)
     step_dt = sim_steps_per_replan * mj_model.opt.timestep
     actual_frequency = 1.0 / step_dt
-    print(
-        f"Planning at {actual_frequency} Hz, "
-        f"simulating at {1.0 / mj_model.opt.timestep} Hz"
-    )
+    print(f"Planning at {actual_frequency} Hz, " f"simulating at {1.0 / mj_model.opt.timestep} Hz")
 
     # Initialize the controller
     mjx_data = mjx.put_data(mj_model, mj_data)
-    mjx_data = mjx_data.replace(
-        mocap_pos=mj_data.mocap_pos, mocap_quat=mj_data.mocap_quat
-    )
+    mjx_data = mjx_data.replace(mocap_pos=mj_data.mocap_pos, mocap_quat=mj_data.mocap_quat)
     policy_params = controller.init_params()
     jit_optimize = jax.jit(controller.optimize)
     jit_interp_func = jax.jit(controller.interp_func)
@@ -107,6 +105,9 @@ def run_interactive(  # noqa: PLR0912, PLR0915
         pert = mujoco.MjvPerturb()
         catmask = mujoco.mjtCatBit.mjCAT_DYNAMIC  # only show dynamic bodies
 
+    if save:
+        mj_renderer = mujoco.Renderer(mj_model, height=1080, width=1920)
+        frames = []
     # Start the simulation
     with mujoco.viewer.launch_passive(mj_model, mj_data) as viewer:
         if fixed_camera_id is not None:
@@ -117,9 +118,7 @@ def run_interactive(  # noqa: PLR0912, PLR0915
         # Set up rollout traces
         if show_traces:
             num_trace_sites = len(controller.task.trace_site_ids)
-            for i in range(
-                num_trace_sites * num_traces * controller.ctrl_steps
-            ):
+            for i in range(num_trace_sites * num_traces * controller.ctrl_steps):
                 mujoco.mjv_initGeom(
                     viewer.user_scn.geoms[i],
                     type=mujoco.mjtGeom.mjGEOM_LINE,
@@ -132,9 +131,7 @@ def run_interactive(  # noqa: PLR0912, PLR0915
 
         # Add geometry for the ghost reference
         if reference is not None:
-            mujoco.mjv_addGeoms(
-                mj_model, ref_data, vopt, pert, catmask, viewer.user_scn
-            )
+            mujoco.mjv_addGeoms(mj_model, ref_data, vopt, pert, catmask, viewer.user_scn)
 
         while viewer.is_running():
             start_time = time.time()
@@ -200,6 +197,10 @@ def run_interactive(  # noqa: PLR0912, PLR0915
                 mj_data.ctrl[:] = np.array(us[i])
                 mujoco.mj_step(mj_model, mj_data)
                 viewer.sync()
+                if save:
+                    mj_renderer.update_scene(mj_data, scene_option=viewer._opt, camera=viewer._cam)
+                    frame = mj_renderer.render()
+                    frames.append(frame)
 
             # Try to run in roughly realtime
             elapsed = time.time() - start_time
@@ -215,3 +216,11 @@ def run_interactive(  # noqa: PLR0912, PLR0915
 
     # Preserve the last printout
     print("")
+    if save:
+        filename = "{}.mp4".format(datetime.now().strftime("%H-%M_%d-%m-%Y"))
+
+        mediapy.write_video(
+            filename,
+            frames,
+            fps=frequency,
+        )
