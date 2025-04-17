@@ -28,6 +28,12 @@ class Bootstrapper:
         """Initialize bootstrap data."""
         return BootstrapperData()
 
-    def bootstrap(self, data: BootstrapperData, rollout: jnp.ndarray) -> tuple[BootstrapperData, jnp.ndarray]:
+    def bootstrap(
+        self,
+        state: mjx.Data,
+        data: BootstrapperData,
+        rollout: jnp.ndarray,
+        rng: jnp.ndarray,
+    ) -> tuple[BootstrapperData, jnp.ndarray]:
         """Get bootstrap data."""
         return data, rollout

@@ -136,7 +136,13 @@ class SamplingBasedController(ABC):
         new_tk = jnp.linspace(0.0, self.plan_horizon, self.num_knots) + state.time
         new_mean = self.interp_func(new_tk, tk, params.mean[None, ...])[0]
         # Bootstrap data
-        bootstrap_data, bootstrapped_mean = self.bootstrapper.bootstrap(params.bootstrap_data, new_mean)
+        rng, bootstrap_rng, dr_rng = jax.random.split(params.rng, 3)
+        bootstrap_data, bootstrapped_mean = self.bootstrapper.bootstrap(
+            state,
+            params.bootstrap_data,
+            new_mean,
+            bootstrap_rng,
+        )
         params = params.replace(tk=new_tk, mean=bootstrapped_mean, bootstrap_data=bootstrap_data)
 
         # Sample random control sequences from spline knots
@@ -145,7 +151,6 @@ class SamplingBasedController(ABC):
 
         # Roll out the control sequences, applying domain randomizations and
         # combining costs using self.risk_strategy.
-        rng, dr_rng = jax.random.split(params.rng)
         rollouts = self.rollout_with_randomizations(state, new_tk, knots, dr_rng)
         params = params.replace(rng=rng)
 

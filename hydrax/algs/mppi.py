@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax.struct import dataclass
 
 from hydrax.alg_base import SamplingBasedController, SamplingParams, Trajectory
+from hydrax.bootstrap_base import Bootstrapper
 from hydrax.risk import RiskStrategy
 from hydrax.task_base import Task
 
@@ -43,6 +44,7 @@ class MPPI(SamplingBasedController):
         plan_horizon: float = 1.0,
         spline_type: Literal["zero", "linear", "cubic"] = "zero",
         num_knots: int = 4,
+        bootstrapper: Bootstrapper | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -69,6 +71,7 @@ class MPPI(SamplingBasedController):
             plan_horizon=plan_horizon,
             spline_type=spline_type,
             num_knots=num_knots,
+            bootstrapper=bootstrapper,
         )
         self.noise_level = noise_level
         self.num_samples = num_samples
@@ -77,7 +80,7 @@ class MPPI(SamplingBasedController):
     def init_params(self, seed: int = 0) -> MPPIParams:
         """Initialize the policy parameters."""
         _params = super().init_params(seed)
-        return MPPIParams(tk=_params.tk, mean=_params.mean, rng=_params.rng)
+        return MPPIParams(**_params.__dict__)
 
     def sample_knots(self, params: MPPIParams) -> Tuple[jax.Array, MPPIParams]:
         """Sample a control sequence."""
@@ -93,9 +96,7 @@ class MPPI(SamplingBasedController):
         controls = params.mean + self.noise_level * noise
         return controls, params.replace(rng=rng)
 
-    def update_params(
-        self, params: MPPIParams, rollouts: Trajectory
-    ) -> MPPIParams:
+    def update_params(self, params: MPPIParams, rollouts: Trajectory) -> MPPIParams:
         """Update the mean with an exponentially weighted average."""
         costs = jnp.sum(rollouts.costs, axis=1)  # sum over time steps
         # N.B. jax.nn.softmax takes care of details like baseline subtraction.
