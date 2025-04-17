@@ -54,9 +54,7 @@ class Task(ABC):
 
         # Get site IDs for points we want to trace
         trace_sites = trace_sites or []
-        self.trace_site_ids = jnp.array(
-            [mj_model.site(name).id for name in trace_sites]
-        )
+        self.trace_site_ids = jnp.array([mj_model.site(name).id for name in trace_sites])
 
     @abstractmethod
     def running_cost(self, state: mjx.Data, control: jax.Array) -> jax.Array:
@@ -117,9 +115,7 @@ class Task(ABC):
         """
         return {}
 
-    def domain_randomize_data(
-        self, data: mjx.Data, rng: jax.Array
-    ) -> Dict[str, jax.Array]:
+    def domain_randomize_data(self, data: mjx.Data, rng: jax.Array) -> Dict[str, jax.Array]:
         """Generate randomized data elements for domain randomization.
 
         This is the place where we could randomize the initial state and other

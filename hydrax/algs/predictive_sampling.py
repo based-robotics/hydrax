@@ -7,6 +7,7 @@ from flax.struct import dataclass
 from hydrax.alg_base import SamplingBasedController, SamplingParams, Trajectory
 from hydrax.risk import RiskStrategy
 from hydrax.task_base import Task
+from hydrax.bootstrap_base import Bootstrapper
 
 
 @dataclass
@@ -36,6 +37,7 @@ class PredictiveSampling(SamplingBasedController):
         plan_horizon: float = 1.0,
         spline_type: Literal["zero", "linear", "cubic"] = "zero",
         num_knots: int = 4,
+        bootstrapper: Bootstrapper = None,
     ) -> None:
         """Initialize the controller.
 
@@ -60,6 +62,7 @@ class PredictiveSampling(SamplingBasedController):
             plan_horizon=plan_horizon,
             spline_type=spline_type,
             num_knots=num_knots,
+            bootstrapper=bootstrapper,
         )
         self.noise_level = noise_level
         self.num_samples = num_samples
@@ -67,7 +70,7 @@ class PredictiveSampling(SamplingBasedController):
     def init_params(self, seed: int = 0) -> PSParams:
         """Initialize the policy parameters."""
         _params = super().init_params(seed)
-        return PSParams(tk=_params.tk, mean=_params.mean, rng=_params.rng)
+        return PSParams(**_params.__dict__)
 
     def sample_knots(self, params: PSParams) -> Tuple[jax.Array, PSParams]:
         """Sample a control sequence."""

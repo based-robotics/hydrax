@@ -8,6 +8,7 @@ from flax.struct import dataclass
 from hydrax.alg_base import SamplingBasedController, SamplingParams, Trajectory
 from hydrax.risk import RiskStrategy
 from hydrax.task_base import Task
+from hydrax.bootstrap_base import Bootstrapper
 
 # Generic types for evosax
 EvoParams = Any
@@ -47,6 +48,7 @@ class Evosax(SamplingBasedController):
         plan_horizon: float = 1.0,
         spline_type: Literal["zero", "linear", "cubic"] = "zero",
         num_knots: int = 4,
+        bootstrapper: Bootstrapper | None = None,
         **kwargs,
     ) -> None:
         """Initialize the controller.
@@ -74,6 +76,7 @@ class Evosax(SamplingBasedController):
             plan_horizon=plan_horizon,
             spline_type=spline_type,
             num_knots=num_knots,
+            bootstrapper=bootstrapper,
         )
 
         self.strategy = optimizer(
@@ -91,18 +94,13 @@ class Evosax(SamplingBasedController):
         _params = super().init_params(seed)
         rng, init_rng = jax.random.split(_params.rng)
         opt_state = self.strategy.initialize(init_rng, self.es_params)
-        return EvosaxParams(
-            tk=_params.tk, mean=_params.mean, opt_state=opt_state, rng=rng
-        )
+        base_kwargs = {k: v for k, v in _params.__dict__.items() if k != "rng"}
+        return EvosaxParams(**base_kwargs, rng=rng, opt_state=opt_state)
 
-    def sample_knots(
-        self, params: EvosaxParams
-    ) -> Tuple[jax.Array, EvosaxParams]:
+    def sample_knots(self, params: EvosaxParams) -> Tuple[jax.Array, EvosaxParams]:
         """Sample control sequences from the proposal distribution."""
         rng, sample_rng = jax.random.split(params.rng)
-        x, opt_state = self.strategy.ask(
-            sample_rng, params.opt_state, self.es_params
-        )
+        x, opt_state = self.strategy.ask(sample_rng, params.opt_state, self.es_params)
 
         # evosax works with vectors of decision variables, so we reshape U to
         # [batch_size, num_knots, nu].
@@ -117,15 +115,11 @@ class Evosax(SamplingBasedController):
 
         return controls, params.replace(opt_state=opt_state, rng=rng)
 
-    def update_params(
-        self, params: EvosaxParams, rollouts: Trajectory
-    ) -> EvosaxParams:
+    def update_params(self, params: EvosaxParams, rollouts: Trajectory) -> EvosaxParams:
         """Update the policy parameters based on the rollouts."""
         costs = jnp.sum(rollouts.costs, axis=1)  # sum over time steps
         x = jnp.reshape(rollouts.knots, (self.strategy.popsize, -1))
-        opt_state = self.strategy.tell(
-            x, costs, params.opt_state, self.es_params
-        )
+        opt_state = self.strategy.tell(x, costs, params.opt_state, self.es_params)
 
         best_idx = jnp.argmin(costs)
         best_knots = rollouts.knots[best_idx]
@@ -134,7 +128,5 @@ class Evosax(SamplingBasedController):
         # best member from the current generation. We want to just use the best
         # member from this generation, since the cost landscape is constantly
         # changing.
-        opt_state = opt_state.replace(
-            best_member=x[best_idx], best_fitness=costs[best_idx]
-        )
+        opt_state = opt_state.replace(best_member=x[best_idx], best_fitness=costs[best_idx])
         return params.replace(mean=best_knots, opt_state=opt_state)

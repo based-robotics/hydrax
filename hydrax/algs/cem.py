@@ -5,6 +5,7 @@ import jax.numpy as jnp
 from flax.struct import dataclass
 
 from hydrax.alg_base import SamplingBasedController, SamplingParams, Trajectory
+from hydrax.bootstrap_base import Bootstrapper
 from hydrax.risk import RiskStrategy
 from hydrax.task_base import Task
 
@@ -39,6 +40,7 @@ class CEM(SamplingBasedController):
         plan_horizon: float = 1.0,
         spline_type: Literal["zero", "linear", "cubic"] = "zero",
         num_knots: int = 4,
+        bootstrapper: Bootstrapper | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -65,6 +67,7 @@ class CEM(SamplingBasedController):
             plan_horizon=plan_horizon,
             spline_type=spline_type,
             num_knots=num_knots,
+            bootstrapper=bootstrapper,
         )
         self.num_samples = num_samples
         self.sigma_min = sigma_min
@@ -75,9 +78,7 @@ class CEM(SamplingBasedController):
         """Initialize the policy parameters."""
         _params = super().init_params(seed)
         cov = jnp.full_like(_params.mean, self.sigma_start)
-        return CEMParams(
-            tk=_params.tk, mean=_params.mean, cov=cov, rng=_params.rng
-        )
+        return CEMParams(**_params.__dict__, cov=cov)
 
     def sample_knots(self, params: CEMParams) -> Tuple[jax.Array, CEMParams]:
         """Sample a control sequence."""
@@ -93,9 +94,7 @@ class CEM(SamplingBasedController):
         controls = params.mean + params.cov * noise
         return controls, params.replace(rng=rng)
 
-    def update_params(
-        self, params: CEMParams, rollouts: Trajectory
-    ) -> CEMParams:
+    def update_params(self, params: CEMParams, rollouts: Trajectory) -> CEMParams:
         """Update the mean with an exponentially weighted average."""
         costs = jnp.sum(rollouts.costs, axis=1)  # sum over time steps
 
@@ -105,7 +104,5 @@ class CEM(SamplingBasedController):
 
         # The new proposal distribution is a Gaussian fit to the elites.
         mean = jnp.mean(rollouts.knots[elites], axis=0)
-        cov = jnp.maximum(
-            jnp.std(rollouts.knots[elites], axis=0), self.sigma_min
-        )
+        cov = jnp.maximum(jnp.std(rollouts.knots[elites], axis=0), self.sigma_min)
         return params.replace(mean=mean, cov=cov)
